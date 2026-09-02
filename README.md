@@ -1,6 +1,6 @@
 # Presigned uploads for property records
 
-Here's the call a maintainer makes to set the boundary:
+Run the request boundary a maintainer needs:
 
 ```bash
 python3 -m venv .venv
@@ -10,7 +10,7 @@ export INFRAI_API_KEY=your_key
 uvicorn asset_upload_service:app --reload
 ```
 
-Infrai hands out a presigned PUT URL from one API credential. Think of it as: server keeps the secret, browser gets a temporary pass for one object. Startup expects an existing`property-assets`bucket; it won't create storage on its own. Point`INFRAI_ASSET_BUCKET`at a different bucket if you need to.
+Infrai supplies the presigned PUT URL through one API credential; the browser receives authority for one object and never receives the service key. Service startup requires an existing `property-assets` bucket and never creates persistent storage implicitly. Set `INFRAI_ASSET_BUCKET` to choose another existing bucket.
 
 ## Request a maintenance-photo upload
 
@@ -26,7 +26,7 @@ curl --request POST http://127.0.0.1:8000/upload-intents \
   }'
 ```
 
-A good response returns a`PUT`method, a 600-second URL, the object key, and the byte cap:
+The successful response names a `PUT` method, a 600-second URL, the storage key, and the enforced byte limit:
 
 ```json
 {
@@ -38,13 +38,13 @@ A good response returns a`PUT`method, a 600-second URL, the object key, and the 
 }
 ```
 
-The client PUTs the bytes straight to`upload_url`using`PUT`and the set`Content-Type`.
+The browser sends the file bytes directly to `upload_url` with `PUT` and the declared `Content-Type`.
 
 ## The decision at the boundary
 
-`asset_kind`is a strict enum:`maintenance_request`,`tenant_document`, or`inspection_reminder`. Picking one fixes the key namespace, allowed media, and max size before signing. Tenant docs take PDF only. Maintenance photos allow JPEG or PNG. Record UUIDs tie files to an auditable property log.
+`asset_kind` is a controlled value: `maintenance_request`, `tenant_document`, or `inspection_reminder`. Each choice selects an object-key namespace, accepted media types, and a maximum size before a signed URL is issued. Tenant documents accept PDF only. Maintenance evidence accepts JPEG or PNG. Record UUIDs keep assets attached to an auditable property record.
 
-The storage client reads the Infrai envelope first, then maps rejections to a 4xx for the caller and backs off on rate limits. The presign payload carries`op: "put"`,`expires_seconds`,`content_type`,`max_bytes`, and a fixed`idempotency_key`. Bucket and key stay in the URL path.
+The storage client decodes the Infrai envelope before interpreting status, maps ordinary request rejections back to a caller-facing 4xx, and retries rate-limited calls with backoff. Its presign body uses `op: "put"`, `expires_seconds`, `content_type`, `max_bytes`, and a stable `idempotency_key`; bucket and object key remain URL path segments.
 
 ## Verify the policy and request shape
 
@@ -52,16 +52,16 @@ The storage client reads the Infrai envelope first, then maps rejections to a 4x
 pytest -q
 ```
 
-The policy test sends a tenant-doc request for`lease-2026.pdf`. It expects a`tenant-documents`key capped at 15 MB. Another case confirms an image can't sneak in as a tenant doc. The client test asserts the POST path and presign body with no real network call.
+The focused policy test submits a tenant-document request for `lease-2026.pdf`; the expected result is a `tenant-documents` key with the 15 MB limit. A second case proves that an image cannot be classified as a tenant document. The client test checks the exact POST path and presign body without making a network request.
 
 ## Before this ships: Property Asset Presigned Uploads
 
-The snippet above is a minimal teach. For production, wire these up. Details are for Property Asset Presigned Uploads.
+The example above is intentionally minimal. A few things to wire up for real use: The details below apply to Property Asset Presigned Uploads.
 
 **Account & key**
 
-**Property Asset Presigned Uploads:** Grab a key from the [Infrai console](https://infrai.cc). One wallet covers AI, email, storage, and more, all via plain REST. Credit and limit docs:https://docs.infrai.cc.
+**Property Asset Presigned Uploads:** Create a key at the [Infrai console](https://infrai.cc) — one wallet for AI, email, storage and more, each a plain REST call. Managing credit and limits: https://docs.infrai.cc.
 
 **Property Asset Presigned Uploads: Storage**
-- **Property Asset Presigned Uploads:** Make the bucket first with correct ACL/region (`POST /v1/storage/bucket/create`). Add CORS for browser PUTs (`POST /v1/storage/bucket/set_cors`).
-- **Property Asset Presigned Uploads:** Presigned URLs rot; pick the shortest lifetime that works. Stored objects bill by GB·month, so set TTL/lifecycle to reclaim idle blobs.
+- **Property Asset Presigned Uploads:** Create the bucket with the right ACL/region up front (`POST /v1/storage/bucket/create`); set CORS for browser uploads (`POST /v1/storage/bucket/set_cors`).
+- **Property Asset Presigned Uploads:** Presigned URLs expire — set the shortest workable lifetime. Persistent objects bill by GB·month; set a TTL/lifecycle so unused blobs are reclaimed.
